@@ -395,6 +395,58 @@ pub fn build_plan(workspace: &Path, mods: &Path) -> Result<Plan> {
             planned_bridges.push(planned);
         }
         for (injection, helper) in bundle.manifest.injection.iter().zip(&bundle.helpers) {
+            let mut resolved = injection.clone();
+            if let Some(hook) = &injection.hook {
+                let context = |e: Diagnostic| {
+                    e.injection(&bundle.manifest.info.id, injection)
+                        .file(&bundle.file)
+                };
+                let path = root.join("native-hooks.json");
+                let contents = std::fs::read_to_string(&path).map_err(|e| {
+                    context(Diagnostic::new(
+                        "E_HOOK",
+                        format!("cannot read {}: {e}", path.display()),
+                    ))
+                })?;
+                #[derive(Deserialize)]
+                struct Catalog {
+                    hooks: Vec<Entry>,
+                }
+                #[derive(Deserialize)]
+                struct Entry {
+                    name: String,
+                    version: u32,
+                    target: String,
+                }
+                let catalog: Catalog = serde_json::from_str(&contents).map_err(|e| {
+                    context(Diagnostic::new(
+                        "E_HOOK",
+                        format!("invalid hook catalog: {e}"),
+                    ))
+                })?;
+                let available: Vec<_> = catalog
+                    .hooks
+                    .iter()
+                    .filter(|e| e.name == hook.name)
+                    .collect();
+                let matching: Vec<_> = available
+                    .iter()
+                    .filter(|e| e.version == hook.version)
+                    .collect();
+                if matching.len() != 1 {
+                    return Err(context(Diagnostic::new(
+                        "E_HOOK",
+                        format!(
+                            "hook {} version {} not uniquely available; versions: {:?}",
+                            hook.name,
+                            hook.version,
+                            available.iter().map(|e| e.version).collect::<Vec<_>>()
+                        ),
+                    )));
+                }
+                resolved.target = matching[0].target.clone();
+            }
+            let injection = &resolved;
             let context = |e: Diagnostic| {
                 let e = e.injection(&bundle.manifest.info.id, injection);
                 if e.file.is_none() {

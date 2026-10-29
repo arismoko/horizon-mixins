@@ -800,3 +800,45 @@ mod boundary;
 
 #[path = "cases/effects.rs"]
 mod effects;
+
+#[test]
+fn named_hooks_resolve_and_reject_missing_contracts() {
+    let f = Fixture::new();
+    let manifest = f.mods.join("alpha/horizon-mixin.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    let raw = "target = \"fixture_game::entity::advance\"";
+    let named = "hook = { name = \"advance\", version = 1 }";
+    fs::write(&manifest, original.replacen(raw, named, 1)).unwrap();
+    let catalog = f.root.join("native-hooks.json");
+    fs::write(
+        &catalog,
+        r#"{"hooks":[{"name":"advance","version":1,"target":"fixture_game::entity::advance"}]}"#,
+    )
+    .unwrap();
+    let plan = build_plan(&f.root, &f.mods).unwrap();
+    assert!(plan.injections.iter().any(|i| i.mod_id == "alpha"
+        && i.injection_id == "head"
+        && i.target == "fixture_game::entity::advance"));
+    fs::write(
+        &manifest,
+        original.replacen(raw, &named.replace("version = 1", "version = 2"), 1),
+    )
+    .unwrap();
+    let error = build_plan(&f.root, &f.mods).unwrap_err();
+    assert_eq!(error.code, "E_HOOK");
+    assert!(error.message.contains("versions: [1]"));
+    fs::write(
+        &manifest,
+        original.replacen(raw, &named.replace("advance", "unknown"), 1),
+    )
+    .unwrap();
+    assert_eq!(build_plan(&f.root, &f.mods).unwrap_err().code, "E_HOOK");
+    fs::remove_file(catalog).unwrap();
+    assert_eq!(build_plan(&f.root, &f.mods).unwrap_err().code, "E_HOOK");
+    fs::write(
+        &manifest,
+        original.replacen(raw, &format!("{raw}\n{named}"), 1),
+    )
+    .unwrap();
+    assert_eq!(build_plan(&f.root, &f.mods).unwrap_err().code, "E_HOOK");
+}

@@ -96,7 +96,9 @@ impl Kind {
 #[serde(deny_unknown_fields)]
 pub struct Injection {
     pub id: String,
+    #[serde(default)]
     pub target: String,
+    pub hook: Option<NamedHook>,
     pub kind: Kind,
     pub helper: String,
     #[serde(default)]
@@ -112,6 +114,12 @@ pub struct Injection {
     pub slice: Option<Slice>,
     pub variable: Option<Variable>,
     pub result: Option<String>,
+}
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedHook {
+    pub name: String,
+    pub version: u32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -274,6 +282,14 @@ pub fn load(root: &Path) -> Result<Vec<LoadedMod>> {
                 return Err(context(fail(
                     "E_DUPLICATE_ID",
                     format!("invalid or duplicate injection id '{}'", injection.id),
+                )));
+            }
+            if (injection.target.is_empty() == injection.hook.is_none())
+                || (injection.hook.is_some() && injection.kind != Kind::Head)
+            {
+                return Err(context(fail(
+                    "E_HOOK",
+                    "specify either target or hook; named hooks require HEAD".into(),
                 )));
             }
             if injection.cancellable
